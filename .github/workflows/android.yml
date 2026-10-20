@@ -1,0 +1,77 @@
+# Compila el APK de «Mi plan 70.3» en cada cambio de la app móvil (o a mano desde
+# Actions → «APK Android» → Run workflow). El APK queda en:
+#   · Actions → la ejecución → Artifacts → miplan703-apk
+#   · Releases → «apk-latest» (enlace fijo para descargarlo en el móvil)
+# Si defines la variable del repositorio API_URL (Settings → Secrets and variables →
+# Actions → Variables), se usa como servidor por defecto de la app.
+name: APK Android
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['mobile/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Servidor de la API
+        if: ${{ vars.API_URL != '' }}
+        run: |
+          sed -i "s#API_URL: '[^']*'#API_URL: '${{ vars.API_URL }}'#" www/config.js
+
+      - name: Versión
+        run: |
+          sed -i "s#VERSION: '[^']*'#VERSION: '1.0.${{ github.run_number }}'#" www/config.js
+
+      - name: Dependencias
+        run: npm install --no-audit --no-fund
+
+      - name: Proyecto Android (Capacitor)
+        run: |
+          npx cap add android
+          node scripts/patch-android.js
+          npx capacitor-assets generate --android --iconBackgroundColor '#0b1220' --splashBackgroundColor '#0b1220'
+          npx cap sync android
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/; s/versionName \"1.0\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+
+      - name: Compilar APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk ../../miplan703.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: miplan703-apk
+          path: miplan703.apk
+
+      - name: Publicar en Releases (apk-latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: Mi plan 70.3 · APK más reciente
+          prerelease: true
+          files: miplan703.apk
+          body: |
+            APK de instalación directa (build ${{ github.run_number }}).
+            En el móvil: descarga miplan703.apk, ábrelo y permite «instalar apps de origen desconocido».
