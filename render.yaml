@@ -1,0 +1,21 @@
+# Despliegue de la API en Render (plan gratuito): New → Blueprint → elige este repositorio.
+services:
+  - type: web
+    name: miplan703-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: STRAVA_CLIENT_ID
+        sync: false
+      - key: STRAVA_CLIENT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRAVA_MOBILE_REDIRECT
+        value: miplan703://miplan703.streamlit.app

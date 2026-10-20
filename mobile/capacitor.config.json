@@ -1,0 +1,15 @@
+{
+  "appId": "com.miplan703.app",
+  "appName": "Mi plan 70.3",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0b1220",
+    "allowMixedContent": false
+  },
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": { "style": "DARK", "backgroundColor": "#0b1220", "overlaysWebView": false }
+  }
+}

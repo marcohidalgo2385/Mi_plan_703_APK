@@ -1,0 +1,23 @@
+{
+  "name": "miplan703",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mi plan 70.3 — app Android (Capacitor) del TFM",
+  "scripts": {
+    "android:init": "npx cap add android && node scripts/patch-android.js && npx capacitor-assets generate --android && npx cap sync android",
+    "android:sync": "npx cap sync android",
+    "android:apk": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/app": "^6.0.2",
+    "@capacitor/browser": "^6.0.4",
+    "@capacitor/core": "^6.2.0",
+    "@capacitor/preferences": "^6.0.3",
+    "@capacitor/status-bar": "^6.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^6.2.0"
+  }
+}

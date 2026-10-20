@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#0b1220">
+  <meta name="color-scheme" content="dark">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' https: capacitor: http://localhost:*; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https: http://localhost:* http://10.0.2.2:* http://127.0.0.1:*">
+  <title>Mi plan 70.3</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Pantalla de arranque (se oculta al cargar) -->
+  <div id="splash" class="splash">
+    <div class="logo-big"><span>70.3</span></div>
+    <div class="splash-t">Mi plan 70.3</div>
+  </div>
+
+  <!-- Onboarding (primera vez o «Editar plan») -->
+  <section id="onb" class="onb" hidden></section>
+
+  <!-- App -->
+  <div id="app" class="app" hidden>
+    <header class="top">
+      <div class="brand"><span class="dot"></span>Mi plan <b>70.3</b></div>
+      <div class="top-r">
+        <span id="srcPill" class="pill"></span>
+        <button id="btnRefresh" class="icon-btn" aria-label="Actualizar"></button>
+      </div>
+    </header>
+    <div id="net" class="net" hidden></div>
+    <main id="view" class="view"></main>
+    <div id="sim" class="sim" hidden></div>
+    <nav class="tabs" id="tabs"></nav>
+  </div>
+
+  <!-- Hoja inferior reutilizable -->
+  <div id="sheetBg" class="sheet-bg" hidden></div>
+  <div id="sheet" class="sheet" role="dialog" aria-modal="true" hidden>
+    <div class="grab"></div>
+    <div id="sheetBody"></div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
