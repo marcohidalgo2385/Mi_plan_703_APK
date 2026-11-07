@@ -1065,16 +1065,15 @@ MODELOS_DIR = 'salidas/modelos'
 
 
 @st.cache_resource(show_spinner=False)
-def cargar_modelos():
-    """Carga los modelos .joblib del notebook si están presentes.
-    Devuelve None si falta joblib/sklearn/xgboost o algún archivo.
-    """
-    try:
+def _cargar_modelos_cache():
+    """Carga los modelos .joblib del notebook. Si falta algo lanza una excepción: Streamlit no
+    guarda en caché los errores, así que al añadir los archivos faltantes se cargan sin reiniciar."""
+    if True:
         import joblib
         req = ['xgb_run2cyc.joblib', 'xgb_cyc2run.joblib', 'preprocesadores.joblib']
         paths = {f: os.path.join(MODELOS_DIR, f) for f in req}
         if not all(os.path.exists(p) for p in paths.values()):
-            return None
+            raise FileNotFoundError('faltan modelos en ' + MODELOS_DIR)
         modelos = {
             'run2cyc': joblib.load(paths['xgb_run2cyc.joblib']),
             'cyc2run': joblib.load(paths['xgb_cyc2run.joblib']),
@@ -1090,6 +1089,12 @@ def cargar_modelos():
                 m.load_model(ruta)
                 modelos[clave] = m
         return modelos
+
+
+def cargar_modelos():
+    """Modelos del TFM o None si no están disponibles (sin guardar el fallo en caché)."""
+    try:
+        return _cargar_modelos_cache()
     except Exception:
         return None
 
@@ -1107,6 +1112,56 @@ def estado_modelos():
     if faltan_arch:
         return ('sin_archivos', f'faltan {len(faltan_arch)} de {len(req)} ficheros en salidas/modelos/')
     return ('activo', 'modelos del TFM cargados')
+
+
+# ----------------------------------------------------------------------------
+# Personalización de la fase 1: el modelo se combina con las sesiones propias del deportista.
+# Constantes calibradas con GoldenCheetah (480 deportistas en bici y 530 en carrera) y
+# contrastadas con los cuatro casos de estudio. El peso de lo propio es n / (n + k0): con
+# pocas sesiones manda el modelo y con muchas manda el historial del deportista.
+# Solo cuentan las sesiones válidas (distancia y duración mínimas, velocidad plausible).
+# ----------------------------------------------------------------------------
+PERSONALIZACION = {
+    'bici': dict(k0=10, base_mult=0.86, min_km=10.0, min_min=30.0, v_min=12.0, v_max=50.0),
+    'run':  dict(k0=2,  base_suma=2.12, min_km=3.0,  min_min=15.0, v_min=5.0,  v_max=20.0),
+}
+MIN_SESIONES_PROPIAS = 3     # con menos sesiones válidas se usa solo el modelo con su margen conservador
+
+
+def velocidad_sostenida(d, deporte, n=25, q=0.80):
+    """(velocidad sostenida, nº de sesiones válidas): percentil 80 de las últimas n sesiones válidas."""
+    if d is None or len(d) == 0 or 'avg_speed_kmh' not in d.columns:
+        return np.nan, 0
+    c = PERSONALIZACION[deporte]
+    d = d.copy()
+    if 'date' in d.columns:
+        d['_f'] = pd.to_datetime(d['date'], utc=True, errors='coerce')
+        d = d.sort_values('_f')
+    v = pd.to_numeric(d['avg_speed_kmh'], errors='coerce')
+    ok = v.between(c['v_min'], c['v_max'])
+    if 'moving_time' in d.columns:                        # minutos; si falta, solo se filtra por velocidad
+        t = pd.to_numeric(d['moving_time'], errors='coerce')
+        km = v * t / 60.0
+        ok &= t.isna() | ((t >= c['min_min']) & (km >= c['min_km']))
+    s = v[ok].tail(n)
+    if s.empty:
+        return np.nan, 0
+    return float(s.quantile(q)), int(len(s))
+
+
+def _entero(x):
+    try:
+        return 0 if pd.isna(x) else int(x)
+    except Exception:
+        return 0
+
+
+def combinar_con_historial(base, propia, n, k0):
+    """Mezcla la estimación del modelo con la velocidad sostenida propia; devuelve (valor, peso de lo propio)."""
+    if n < MIN_SESIONES_PROPIAS or propia is None or pd.isna(propia):
+        return float(base), 0.0
+    w = n / (n + k0)
+    return float(w * propia + (1 - w) * base), float(w)
 
 
 def features_atleta(acts, zonas, fitness, perfil_row, sexo='M'):
@@ -1151,6 +1206,16 @@ def features_atleta(acts, zonas, fitness, perfil_row, sexo='M'):
                 f['running_speed_kmh'] = _sost(runs)        # entrada del modelo directo
             if not cyc.empty:
                 f['pace_cycling_kmh'] = _sost(cyc)          # entrada del modelo inverso
+            # Velocidad sostenida con las sesiones válidas (mismo criterio con el que se calibró la
+            # personalización de la fase 1): entrada de los modelos y dato propio del deportista.
+            v_run, n_run = velocidad_sostenida(runs, 'run')
+            v_cyc, n_cyc = velocidad_sostenida(cyc, 'bici')
+            f['n_run'], f['n_bici'] = n_run, n_cyc
+            f['run_propia_kmh'], f['bici_propia_kmh'] = v_run, v_cyc
+            if n_run >= MIN_SESIONES_PROPIAS:
+                f['running_speed_kmh'] = v_run
+            if n_cyc >= MIN_SESIONES_PROPIAS:
+                f['pace_cycling_kmh'] = v_cyc
             if not swm.empty:
                 f['swim_speed_kmh'] = _sost(swm)
         if 'avg_hr' in cols:
@@ -1208,7 +1273,16 @@ def inferir_con_modelos(modelos, feats):
             v = float(modelos['run2cyc'].predict(row)[0]) if not np.isnan(row[0][0]) else np.nan
             if 10.0 < v < 50.0:                        # descarta salidas no plausibles
                 out['bici_pred_kmh'] = v
-                out['bici_cons_kmh'] = v * 0.85        # margen conservador del TFM
+                out['bici_modelo_kmh'] = v * 0.85      # solo modelo, con el margen conservador del TFM
+                c = PERSONALIZACION['bici']
+                if _entero(feats.get('n_bici')) >= MIN_SESIONES_PROPIAS:
+                    comb, w = combinar_con_historial(c['base_mult'] * v, feats.get('bici_propia_kmh'),
+                                                     _entero(feats.get('n_bici')), c['k0'])
+                else:
+                    comb, w = v * 0.85, 0.0
+                out['bici_cons_kmh'] = comb            # modelo combinado con las sesiones propias
+                out['bici_peso_propio'] = w
+                out['bici_n_validas'] = _entero(feats.get('n_bici'))
     except Exception:
         pass
     try:
@@ -1218,7 +1292,16 @@ def inferir_con_modelos(modelos, feats):
             v = float(modelos['cyc2run'].predict(row)[0]) if not np.isnan(row[0][0]) else np.nan
             if 5.0 < v < 20.0:
                 out['run_pred_kmh'] = v
-                out['run_cons_kmh'] = max(v - 0.5, 5.0)  # margen conservador del TFM
+                out['run_modelo_kmh'] = max(v - 0.5, 5.0)  # solo modelo, con el margen conservador del TFM
+                c = PERSONALIZACION['run']
+                if _entero(feats.get('n_run')) >= MIN_SESIONES_PROPIAS:
+                    comb, w = combinar_con_historial(v + c['base_suma'], feats.get('run_propia_kmh'),
+                                                     _entero(feats.get('n_run')), c['k0'])
+                else:
+                    comb, w = max(v - 0.5, 5.0), 0.0
+                out['run_cons_kmh'] = max(comb, 5.0)   # modelo combinado con las sesiones propias
+                out['run_peso_propio'] = w
+                out['run_n_validas'] = _entero(feats.get('n_run'))
     except Exception:
         pass
     return out
